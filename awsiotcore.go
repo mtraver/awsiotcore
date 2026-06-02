@@ -5,37 +5,10 @@ package awsiotcore
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"io/ioutil"
-	"os"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
-
-// DeviceIDFromCert gets the Common Name from an X.509 cert, which for the purposes of this package is considered to be the device ID.
-func DeviceIDFromCert(certPath string) (string, error) {
-	certBytes, err := ioutil.ReadFile(certPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("awsiotcore: cert file does not exist: %v", certPath)
-		}
-
-		return "", fmt.Errorf("awsiotcore: failed to read cert: %v", err)
-	}
-
-	block, _ := pem.Decode(certBytes)
-	if block == nil || block.Type != "CERTIFICATE" {
-		return "", fmt.Errorf("awsiotcore: failed to decode PEM certificate")
-	}
-
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return "", err
-	}
-
-	return cert.Subject.CommonName, nil
-}
 
 // Device represents an AWS IoT device.
 type Device struct {
