@@ -1,21 +1,19 @@
 # awsiotcore
 [![Go Reference](https://pkg.go.dev/badge/github.com/mtraver/awsiotcore.svg)](https://pkg.go.dev/github.com/mtraver/awsiotcore)
 
-AWS IoT Core over MQTT in Go
-
-This package follows https://aws.amazon.com/blogs/iot/use-aws-iot-core-mqtt-broker-with-standard-mqtt-libraries/.
+AWS IoT Core over MQTT in Go. This package follows https://aws.amazon.com/blogs/iot/use-aws-iot-core-mqtt-broker-with-standard-mqtt-libraries/.
 
 # Requirements
 
 ## Amazon CA certs
 
-You'll need Amazon's CA certs listed under "CA certificates for server authentication" [https://docs.aws.amazon.com/iot/latest/developerguide/server-authentication.html](here).
+You'll need Amazon's CA certs listed under "CA certificates for server authentication" [here](https://docs.aws.amazon.com/iot/latest/developerguide/server-authentication.html#server-authentication-certs).
 
-As of 2023-04-22 they are:
+As of 2026-06-02 they are:
 
-> - RSA 2048 bit key: [Amazon Root CA 1](https://www.amazontrust.com/repository/AmazonRootCA1.pem)
+> - RSA 2048 bit key: [Amazon Root CA 1](https://www.amazontrust.com/repository/AmazonRootCA1.pem).
 > - RSA 4096 bit key: Amazon Root CA 2. Reserved for future use.
-> - ECC 256 bit key: [Amazon Root CA 3](https://www.amazontrust.com/repository/AmazonRootCA3.pem)
+> - ECC 256 bit key: [Amazon Root CA 3](https://www.amazontrust.com/repository/AmazonRootCA3.pem).
 > - ECC 384 bit key: Amazon Root CA 4. Reserved for future use.
 
 Supply these to `Device` as an `*x509.CertPool`.
