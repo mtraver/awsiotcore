@@ -1,4 +1,6 @@
 # awsiotcore
+[![Go Reference](https://pkg.go.dev/badge/github.com/mtraver/awsiotcore.svg)](https://pkg.go.dev/github.com/mtraver/awsiotcore)
+
 AWS IoT Core over MQTT in Go
 
 This package follows https://aws.amazon.com/blogs/iot/use-aws-iot-core-mqtt-broker-with-standard-mqtt-libraries/.
@@ -16,7 +18,7 @@ As of 2023-04-22 they are:
 > - ECC 256 bit key: [Amazon Root CA 3](https://www.amazontrust.com/repository/AmazonRootCA3.pem)
 > - ECC 384 bit key: Amazon Root CA 4. Reserved for future use.
 
-Download these and put them in a .pem file and use it when calling `NewClient`.
+Supply these to `Device` as an `*x509.CertPool`.
 
 ## Endpoint URL
 
