@@ -40,12 +40,14 @@ func DeviceIDFromCert(certPath string) (string, error) {
 // Device represents an AWS IoT device.
 type Device struct {
 	Endpoint               string
-	DeviceID               string `json:"device_id"`
-	TelemetryTopicOverride string `json:"telemetry_topic"`
-	// CACerts must contain the path to a .pem file containing Amazon's trusted root certs. See the README for more info.
-	CACerts     string `json:"ca_certs_path"`
-	CertPath    string `json:"cert_path"`
-	PrivKeyPath string `json:"priv_key_path"`
+	DeviceID               string
+	TelemetryTopicOverride string
+
+	// CACerts must contain Amazon's trusted root certs. See the README for more info.
+	CACerts *x509.CertPool
+
+	// Cert if the device's certificate.
+	Cert tls.Certificate
 }
 
 // NewClient creates a github.com/eclipse/paho.mqtt.golang Client that may be used to connect to the device's MQTT broker using TLS.
@@ -70,30 +72,14 @@ type Device struct {
 //		}
 //	}
 //
-// No options are required to establish a connection but they allow for customizability.
+// No options are required to establish a connection.
 //
 // For more information about connecting to AWS IoT MQTT brokers see https://docs.aws.amazon.com/iot/latest/developerguide/iot-connect-devices.html.
 func (d *Device) NewClient(options ...func(*Device, *mqtt.ClientOptions) error) (mqtt.Client, error) {
-	// Load CA certs.
-	pemCerts, err := os.ReadFile(d.CACerts)
-	if err != nil {
-		return nil, fmt.Errorf("awsiotcore: failed to read CA certs: %v", err)
-	}
-	certpool := x509.NewCertPool()
-	if !certpool.AppendCertsFromPEM(pemCerts) {
-		return nil, fmt.Errorf("awsiotcore: no certs were parsed from given CA certs")
-	}
-
-	// Import client certificate/key pair.
-	cert, err := tls.LoadX509KeyPair(d.CertPath, d.PrivKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("awsiotcore: failed to load x509 key pair: %w", err)
-	}
-
 	tlsConf := &tls.Config{
-		RootCAs:      certpool,
+		RootCAs:      d.CACerts,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
-		Certificates: []tls.Certificate{cert},
+		Certificates: []tls.Certificate{d.Cert},
 		// AWS IoT requires devices to send the Server Name Indication (SNI) TLS extension, and its value must be the endpoint address.
 		// See https://docs.aws.amazon.com/iot/latest/developerguide/transport-security.html.
 		ServerName: d.Endpoint,
