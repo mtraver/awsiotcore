@@ -1,19 +1,25 @@
 package awsiotcore
 
-import "fmt"
+import (
+	"net"
+	"net/url"
+	"strconv"
+)
 
-// MQTTBroker represents an MQTT server.
+// MQTTBroker represents an MQTT broker.
 type MQTTBroker struct {
 	Host string
 	Port int
 }
 
-// URL returns the URL of the MQTT server.
-func (b *MQTTBroker) URL() string {
-	return fmt.Sprintf("tls://%s:%d", b.Host, b.Port)
+// URL returns the URL of the MQTT broker.
+func (b *MQTTBroker) URL() *url.URL {
+	return &url.URL{
+		Scheme: "tls",
+		Host:   net.JoinHostPort(b.Host, strconv.Itoa(b.Port)),
+	}
 }
 
-// String returns a string representation of the MQTTBroker.
 func (b *MQTTBroker) String() string {
-	return b.URL()
+	return b.URL().String()
 }

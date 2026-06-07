@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/eclipse/paho.golang/autopaho"
+	"github.com/eclipse/paho.golang/paho"
 )
 
 type shadowOperation string
@@ -26,13 +26,16 @@ type result[T any] struct {
 	err  error
 }
 
-// Client allows interaction with the AWS IoT Core Device Shadow service.
+// Client implements interaction with the AWS IoT Core Device Shadow service.
+//
+// T is the state that will be managed by the AWS IoT Core Device Shadow service.
+// It must be marshallable into a JSON object.
 //
 // See the [AWS IoT Device Shadow service] documentation.
 //
 // [AWS IoT Device Shadow service]: https://docs.aws.amazon.com/iot/latest/developerguide/iot-device-shadows.html
 type Client[T any] struct {
-	mqtt          mqtt.Client
+	mqtt          *autopaho.ConnectionManager
 	thingName     string
 	shadowName    string
 	pending       sync.Map
@@ -44,35 +47,23 @@ type Client[T any] struct {
 // If shadowName is the empty string then the client will interact with the
 // unnamed (classic) shadow.
 //
+// T is the state that will be managed by the AWS IoT Core Device Shadow service.
+// It must be marshallable into a JSON object.
+//
 // See the [AWS IoT Device Shadow service] documentation.
 //
 // [AWS IoT Device Shadow service]: https://docs.aws.amazon.com/iot/latest/developerguide/iot-device-shadows.html
-func NewClient[T any](mqttClient mqtt.Client, thingName, shadowName string, updateHandler UpdateHandler[T]) (*Client[T], error) {
+func NewClient[T any](connectionManager *autopaho.ConnectionManager, thingName, shadowName string, updateHandler UpdateHandler[T]) *Client[T] {
 	sc := &Client[T]{
-		mqtt:          mqttClient,
+		mqtt:          connectionManager,
 		thingName:     thingName,
 		shadowName:    shadowName,
 		updateHandler: updateHandler,
 	}
 
-	prefix := sc.TopicPrefix()
-	subs := map[string]byte{
-		prefix + "/get/accepted":     1,
-		prefix + "/get/rejected":     1,
-		prefix + "/update/accepted":  1,
-		prefix + "/update/rejected":  1,
-		prefix + "/delete/accepted":  1,
-		prefix + "/delete/rejected":  1,
-		prefix + "/update/delta":     1,
-		prefix + "/update/documents": 1,
-	}
+	connectionManager.AddOnPublishReceived(sc.onPublishReceived)
 
-	token := mqttClient.SubscribeMultiple(subs, sc.handleMessage)
-	if token.Wait() && token.Error() != nil {
-		return nil, fmt.Errorf("shadow subscriptions failed: %w", token.Error())
-	}
-
-	return sc, nil
+	return sc
 }
 
 func (sc *Client[T]) TopicPrefix() string {
@@ -81,6 +72,28 @@ func (sc *Client[T]) TopicPrefix() string {
 	}
 
 	return fmt.Sprintf("$aws/things/%s/shadow/name/%s", sc.thingName, sc.shadowName)
+}
+
+// OnConnectionUp should be called in your [autopaho.ClientConfig] OnConnectionUp function
+// in order to (re)subscribe to the AWS IoT Core Device Shadow service MQTT topics.
+func (sc *Client[T]) OnConnectionUp(ctx context.Context) error {
+	prefix := sc.TopicPrefix()
+	if _, err := sc.mqtt.Subscribe(ctx, &paho.Subscribe{
+		Subscriptions: []paho.SubscribeOptions{
+			{Topic: prefix + "/get/accepted", QoS: 1},
+			{Topic: prefix + "/get/rejected", QoS: 1},
+			{Topic: prefix + "/update/accepted", QoS: 1},
+			{Topic: prefix + "/update/rejected", QoS: 1},
+			{Topic: prefix + "/delete/accepted", QoS: 1},
+			{Topic: prefix + "/delete/rejected", QoS: 1},
+			{Topic: prefix + "/update/delta", QoS: 1},
+			{Topic: prefix + "/update/documents", QoS: 1},
+		},
+	}); err != nil {
+		return fmt.Errorf("shadow subscriptions failed: %w", err)
+	}
+
+	return nil
 }
 
 // Get gets the shadow's current state.
@@ -106,6 +119,7 @@ func (sc *Client[T]) UpdateDesiredState(ctx context.Context, state T) (*Accepted
 	})
 }
 
+// Delete deletes the shadow.
 func (sc *Client[T]) Delete(ctx context.Context) error {
 	_, err := sc.request(ctx, operationDelete, nil)
 	return err
@@ -138,9 +152,12 @@ func (sc *Client[T]) request(ctx context.Context, operation shadowOperation, req
 	sc.pending.Store(clientToken, ch)
 	defer sc.pending.Delete(clientToken)
 
-	topic := sc.topic(operation)
-	if token := sc.mqtt.Publish(topic, 1, false, payload); token.Wait() && token.Error() != nil {
-		return nil, fmt.Errorf("publish failed: %w", token.Error())
+	if _, err := sc.mqtt.Publish(ctx, &paho.Publish{
+		Topic:   sc.topic(operation),
+		Payload: payload,
+		QoS:     1,
+	}); err != nil {
+		return nil, fmt.Errorf("publish failed: %w", err)
 	}
 
 	select {
@@ -151,63 +168,77 @@ func (sc *Client[T]) request(ctx context.Context, operation shadowOperation, req
 	}
 }
 
-func (sc *Client[T]) handleMessage(_ mqtt.Client, msg mqtt.Message) {
-	topic := msg.Topic()
+func (sc *Client[T]) onPublishReceived(pr autopaho.PublishReceived) (bool, error) {
+	if !strings.HasPrefix(pr.Packet.Topic, sc.TopicPrefix()) {
+		// Not our message to process, pass it on.
+		return false, nil
+	}
+
+	// Handle the message in a separate goroutine so that we don't block processing of new messages.
+	go sc.handleMessage(pr)
+
+	return true, nil
+}
+
+func (sc *Client[T]) handleMessage(pr autopaho.PublishReceived) (bool, error) {
+	topic := pr.Packet.Topic
+	payload := pr.Packet.Payload
 
 	if strings.HasSuffix(topic, "/update/delta") {
 		if sc.updateHandler != nil {
 			var delta DeltaResponse[T]
-			if err := json.Unmarshal(msg.Payload(), &delta); err != nil {
-				log.Printf("Failed to unmarshal delta: %v", err)
-				return
+			if err := json.Unmarshal(payload, &delta); err != nil {
+				return true, fmt.Errorf("failed to unmarshal shadow state delta: %w", err)
 			}
 
 			sc.updateHandler.HandleShadowUpdateDelta(&delta)
 		}
 
-		return
+		return true, nil
 	}
 
 	if strings.HasSuffix(topic, "/update/documents") {
 		if sc.updateHandler != nil {
 			var documents DocumentsResponse[T]
-			if err := json.Unmarshal(msg.Payload(), &documents); err != nil {
-				log.Printf("Failed to unmarshal documents: %v", err)
-				return
+			if err := json.Unmarshal(payload, &documents); err != nil {
+				return true, fmt.Errorf("failed to unmarshal shadow state documents: %w", err)
 			}
 
 			sc.updateHandler.HandleShadowUpdateDocuments(&documents)
 		}
 
-		return
+		return true, nil
 	}
 
 	var envelope struct {
 		ClientToken string `json:"clientToken"`
 	}
-	if err := json.Unmarshal(msg.Payload(), &envelope); err != nil {
-		return
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return true, err
 	}
 
 	val, ok := sc.pending.LoadAndDelete(envelope.ClientToken)
 	if !ok {
-		return
+		// TODO(mtraver) Would it be useful to surface an error in this case? I don't
+		// think it should be normal for this to happen. It indicates a client token
+		// not being set or received properly or a message type that we don't support.
+		return true, nil
 	}
 	ch := val.(chan result[T])
 
 	if strings.HasSuffix(topic, "/accepted") {
 		var resp AcceptedResponse[T]
-		if err := json.Unmarshal(msg.Payload(), &resp); err != nil {
+		if err := json.Unmarshal(payload, &resp); err != nil {
 			ch <- result[T]{err: err}
-			return
+			return true, err
 		}
 
 		ch <- result[T]{resp: &resp}
 	} else if strings.HasSuffix(topic, "/rejected") {
 		var errResp ErrorResponse
-		if err := json.Unmarshal(msg.Payload(), &errResp); err != nil {
+		if err := json.Unmarshal(payload, &errResp); err != nil {
 			ch <- result[T]{err: err}
-			return
+			return true, err
 		}
 
 		if errResp.Code == 404 {
@@ -216,6 +247,10 @@ func (sc *Client[T]) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 			ch <- result[T]{err: &errResp}
 		}
 	} else {
-		ch <- result[T]{err: fmt.Errorf("received message on unknown topic: %q", topic)}
+		err := fmt.Errorf("received message on unknown topic: %q", topic)
+		ch <- result[T]{err: err}
+		return true, err
 	}
+
+	return true, nil
 }

@@ -24,7 +24,7 @@ func TestTelemetryTopic(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "default_telemetry_topic",
+			name: "default telemetry topic",
 			device: Device{
 				Endpoint: "myendpoint",
 				DeviceID: "foo",
@@ -32,7 +32,7 @@ func TestTelemetryTopic(t *testing.T) {
 			want: "things/foo/telemetry",
 		},
 		{
-			name: "telemetry_topic_override",
+			name: "telemetry topic override",
 			device: Device{
 				Endpoint:               "myendpoint",
 				DeviceID:               "foo",
@@ -42,11 +42,11 @@ func TestTelemetryTopic(t *testing.T) {
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := c.device.TelemetryTopic()
-			if got != c.want {
-				t.Errorf("got %q, want %q", got, c.want)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.device.TelemetryTopic()
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
 	}
