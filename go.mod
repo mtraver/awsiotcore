@@ -1,6 +1,6 @@
 module github.com/mtraver/awsiotcore
 
-go 1.26.2
+go 1.26.5
 
 require (
 	github.com/eclipse/paho.golang v0.23.0
@@ -9,5 +9,5 @@ require (
 
 require (
 	github.com/gorilla/websocket v1.5.3 // indirect
-	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 )
